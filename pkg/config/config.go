@@ -1,10 +1,8 @@
 package config
 
 import (
-    "fmt"
     "log/slog"
 
-    "github.com/fsnotify/fsnotify"
     "github.com/pkg/errors"
     "github.com/spf13/viper"
 )
@@ -24,6 +22,10 @@ type Health struct {
     Timeout  int `yaml:"timeout"`
 }
 
+type Server struct {
+    Port int `yaml:"port"`
+}
+
 func LoadConfig(filePath string) error {
     viper.SetConfigFile(filePath)
     viper.SetConfigType("yaml")
@@ -35,14 +37,6 @@ func LoadConfig(filePath string) error {
     }
 
     viper.WatchConfig()
-
-    viper.OnConfigChange(func(e fsnotify.Event) {
-        fmt.Println("Config file changed:", e.Name)
-        err = viper.ReadInConfig()
-        if err != nil {
-            slog.Error(err.Error(), "msg", "error reading config file")
-        }
-    })
 
     return nil
 }
@@ -65,4 +59,12 @@ func GetBackends() []*Backend {
     }
 
     return backends
+}
+
+func GetServerConfig() *Server {
+    server := &Server{
+        Port: viper.GetInt("server.port"),
+    }
+
+    return server
 }

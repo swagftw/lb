@@ -2,6 +2,7 @@ package main
 
 import (
     "log"
+    "log/slog"
     "os"
 
     "lb/internal/balancer"
@@ -9,7 +10,15 @@ import (
 )
 
 func main() {
-    lb := new(balancer.LB)
+    logLevel := new(slog.LevelVar)
+    logLevel.Set(slog.LevelDebug)
+
+    logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+        Level:     logLevel,
+        AddSource: true,
+    }))
+
+    slog.SetDefault(logger)
 
     configPath := os.Getenv("CONFIG_PATH")
     if configPath == "" {
@@ -21,6 +30,5 @@ func main() {
         log.Fatal(err)
     }
 
-    lb.LoadBackends()
-    lb.Start()
+    balancer.Run()
 }

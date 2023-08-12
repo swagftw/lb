@@ -4,6 +4,9 @@ health:
 
 backends:
   - name: backend1
-    url: http://localhost:8080
+    ip: localhost:8080
   - name: backend2
-    url: http://localhost:8081
+    ip: localhost:8081
+
+server:
+  port: 8888

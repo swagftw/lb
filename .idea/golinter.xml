@@ -5,7 +5,6 @@
     <option name="enabledLinters">
       <list>
         <option value="exportloopref" />
-        <option value="gci" />
         <option value="loggercheck" />
         <option value="gocognit" />
         <option value="nestif" />
@@ -80,7 +79,6 @@
         <option value="godot" />
         <option value="goprintffuncname" />
         <option value="gocyclo" />
-        <option value="gofumpt" />
         <option value="errchkjson" />
         <option value="musttag" />
         <option value="goconst" />
@@ -112,7 +110,7 @@
         <option value="interfacebloat" />
       </list>
     </option>
-    <option name="goLinterExe" value="$PROJECT_DIR$/../../../../../bin/golangci-lint" />
+    <option name="goLinterExe" value="$USER_HOME$/go/bin/golangci-lint" />
     <option name="linterSelected" value="true" />
   </component>
 </project>
