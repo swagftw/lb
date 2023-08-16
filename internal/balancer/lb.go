@@ -1,115 +1,100 @@
 package balancer
 
 import (
-    "context"
-    "log"
-    "log/slog"
-    "os"
+	"log"
+	"log/slog"
+	"os"
+	"sync"
 
-    "github.com/fsnotify/fsnotify"
-    "github.com/spf13/viper"
-
-    "lb/internal/backend"
-    "lb/pkg/config"
+	"lb/internal/backend"
+	"lb/pkg/config"
 )
 
 type LB struct {
-    Ctx      context.Context
-    Cancel   context.CancelFunc
-    backends map[string]*backend.Backend
+	backends  []*backend.Backend
+	nextIndex uint32
+	mutex     sync.Mutex
 }
 
 // LoadBackends loads backends from config
 func (lb *LB) LoadBackends() {
-    // clear backends
-    clear(lb.backends)
+	// clear backends
+	clear(lb.backends)
 
-    backends := config.GetBackends()
+	backends := config.GetBackends()
 
-    for _, b := range backends {
-        // check if backend already exists
-        if _, ok := lb.backends[b.IP]; ok {
-            continue
-        }
-
-        lb.backends[b.IP] = &backend.Backend{
-            IP:               b.IP,
-            TotalConnections: 0,
-            Alive:            true,
-        }
-    }
+	for _, b := range backends {
+		lb.backends = append(lb.backends, backend.New(b.Addr))
+	}
 }
 
 func Run() {
-    logLevel := new(slog.LevelVar)
-    logLevel.Set(slog.LevelInfo)
+	logLevel := new(slog.LevelVar)
+	logLevel.Set(slog.LevelInfo)
 
-    logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-        Level:     logLevel,
-        AddSource: true,
-    }))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     logLevel,
+		AddSource: true,
+	}))
 
-    slog.SetDefault(logger)
+	slog.SetDefault(logger)
 
-    configPath := os.Getenv("CONFIG_PATH")
-    if configPath == "" {
-        configPath = "./pkg/config/config.yaml"
-    }
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "./pkg/config/config.yaml"
+	}
 
-    err := config.LoadConfig(configPath)
-    if err != nil {
-        log.Fatal(err)
-    }
+	err := config.LoadConfig(configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    lb := &LB{
-        backends: make(map[string]*backend.Backend),
-    }
+	lb := &LB{
+		backends: make([]*backend.Backend, 0),
+	}
 
-    // load backends
-    lb.LoadBackends()
+	// load backends
+	lb.LoadBackends()
 
-    lb.Ctx, lb.Cancel = context.WithCancel(context.Background())
+	// keep pinging backends until context is cancelled,
+	// if the context is cancelled start again
+	go lb.pingBackends()
 
-    viper.OnConfigChange(func(e fsnotify.Event) {
-        slog.Debug("config file changed:", "event", e.Name)
-        err = viper.ReadInConfig()
-        if err != nil {
-            slog.Error(err.Error(), "msg", "error reading config file")
+	// start server
+	server := Server{
+		port: config.GetServerConfig().Port,
+		lb:   lb,
+	}
 
-            return
-        }
-
-        // load updated backends
-        lb.LoadBackends()
-
-        // cancel current context
-        lb.Cancel()
-    })
-
-    // keep pinging backends until context is cancelled,
-    // if the context is cancelled start again
-    go func() {
-        for {
-            lb.pingBackends()
-            <-lb.Ctx.Done()
-
-            // once the context is cancelled (config changed), create a new context
-            lb.Ctx, lb.Cancel = context.WithCancel(context.Background())
-        }
-    }()
-
-    // start server
-    server := Server{
-        Port: config.GetServerConfig().Port,
-        lb:   lb,
-    }
-
-    server.Start()
+	server.Start()
 }
 
 // pingBackends pings all backends from the config, concurrently.
 func (lb *LB) pingBackends() {
-    for _, be := range lb.backends {
-        go be.Ping(lb.Ctx)
-    }
+	for _, be := range lb.backends {
+		go be.Ping()
+	}
+}
+
+// round-robin load balancing algorithm
+func (lb *LB) next() *backend.Backend {
+	lb.mutex.Lock()
+	defer lb.mutex.Unlock()
+
+	totalBackends := len(lb.backends)
+
+	if totalBackends == 0 {
+		return nil
+	}
+
+	be := lb.backends[0]
+	if !be.IsAlive() {
+		lb.next()
+	}
+
+	if totalBackends >= 2 {
+		lb.backends = append(lb.backends[1:], be)
+	}
+
+	return be
 }

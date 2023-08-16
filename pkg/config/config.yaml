@@ -4,9 +4,13 @@ health:
 
 backends:
   - name: backend1
-    ip: localhost:8080
+    addr: localhost:8080
   - name: backend2
-    ip: localhost:8081
+    addr: localhost:8081
+  - name: backend3
+    addr: localhost:8082
+  - name: backend4
+    addr: localhost:8083
 
 server:
   port: 8888

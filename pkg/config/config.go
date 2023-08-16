@@ -1,70 +1,72 @@
 package config
 
 import (
-    "log/slog"
+	"log/slog"
 
-    "github.com/pkg/errors"
-    "github.com/spf13/viper"
+	"github.com/pkg/errors"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-    Health   Health     `yaml:"health"`
-    Backends []*Backend `yaml:"backends"`
+	Health   Health     `yaml:"health"`
+	Backends []*Backend `yaml:"backends"`
 }
 
 type Backend struct {
-    IP   string `yaml:"ip"`
-    Name string `yaml:"name"`
+	Addr string `yaml:"addr"`
+	Name string `yaml:"name"`
 }
 
 type Health struct {
-    Interval int `yaml:"interval"`
-    Timeout  int `yaml:"timeout"`
+	Interval int `yaml:"interval"`
+	Timeout  int `yaml:"timeout"`
 }
 
 type Server struct {
-    Port int `yaml:"port"`
+	Port           int `yaml:"port"`
+	MaxConnections int `yaml:"max_connections"`
 }
 
 func LoadConfig(filePath string) error {
-    viper.SetConfigFile(filePath)
-    viper.SetConfigType("yaml")
-    viper.AutomaticEnv()
+	viper.SetConfigFile(filePath)
+	viper.SetConfigType("yaml")
+	viper.AutomaticEnv()
 
-    err := viper.ReadInConfig()
-    if err != nil {
-        return errors.Wrap(err, "error reading config file")
-    }
+	err := viper.ReadInConfig()
+	if err != nil {
+		return errors.Wrap(err, "error reading config file")
+	}
 
-    viper.WatchConfig()
+	viper.WatchConfig()
 
-    return nil
+	return nil
 }
 
 func GetHealth() *Health {
-    health := &Health{
-        Interval: viper.GetInt("health.interval"),
-        Timeout:  viper.GetInt("health.timeout"),
-    }
+	health := &Health{
+		Interval: viper.GetInt("health.interval"),
+		Timeout:  viper.GetInt("health.timeout"),
+	}
 
-    return health
+	return health
 }
 
 func GetBackends() []*Backend {
-    var backends []*Backend
+	var backends []*Backend
 
-    err := viper.UnmarshalKey("backends", &backends)
-    if err != nil {
-        slog.Error(err.Error(), "msg", "error unmarshaling backends")
-    }
+	err := viper.UnmarshalKey("backends", &backends)
+	if err != nil {
+		slog.Error(err.Error(), "msg", "error unmarshaling backends")
+	}
 
-    return backends
+	return backends
 }
 
 func GetServerConfig() *Server {
-    server := &Server{
-        Port: viper.GetInt("server.port"),
-    }
+	server := &Server{
+		Port:           viper.GetInt("server.port"),
+		MaxConnections: viper.GetInt("server.max_connections"),
+	}
 
-    return server
+	return server
 }
