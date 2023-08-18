@@ -58,7 +58,7 @@ func Run() {
 
 	// keep pinging backends until context is cancelled,
 	// if the context is cancelled start again
-	go lb.pingBackends()
+	lb.pingBackends()
 
 	// start server
 	server := Server{
