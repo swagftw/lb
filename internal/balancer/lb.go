@@ -1,68 +1,60 @@
 package balancer
 
 import (
-	"log"
 	"log/slog"
-	"os"
+	"net/http"
 	"sync"
+	"time"
 
-	"lb/internal/backend"
 	"lb/pkg/config"
 )
 
 type LB struct {
-	backends  []*backend.Backend
-	nextIndex uint32
-	mutex     sync.Mutex
+	backends   []*Backend
+	httpClient *http.Client
+	mutex      sync.Mutex
+}
+
+type Backend struct {
+	Addr  string
+	Alive bool
+	ID    int
 }
 
 // LoadBackends loads backends from config
 func (lb *LB) LoadBackends() {
-	// clear backends
-	clear(lb.backends)
-
 	backends := config.GetBackends()
 
+	if lb.backends == nil {
+		lb.backends = make([]*Backend, 0, len(backends))
+	}
+
+	clear(lb.backends)
+
 	for _, b := range backends {
-		lb.backends = append(lb.backends, backend.New(b.Addr))
+		lb.backends = append(lb.backends, &Backend{
+			Addr: b.Addr,
+			ID:   b.ID,
+		})
 	}
 }
 
 func Run() {
-	logLevel := new(slog.LevelVar)
-	logLevel.Set(slog.LevelInfo)
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:     logLevel,
-		AddSource: true,
-	}))
-
-	slog.SetDefault(logger)
-
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "./pkg/config/config.yaml"
-	}
-
-	err := config.LoadConfig(configPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	lb := &LB{
-		backends: make([]*backend.Backend, 0),
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: time.Duration(config.GetHealth().Timeout) * time.Second,
+			},
+		},
 	}
-
-	// load backends
-	lb.LoadBackends()
 
 	// keep pinging backends until context is cancelled,
 	// if the context is cancelled start again
-	lb.pingBackends()
+	go lb.pingBackends()
 
 	// start server
 	server := Server{
-		port: config.GetServerConfig().Port,
+		port: config.GetBalancerConfig().Port,
 		lb:   lb,
 	}
 
@@ -71,13 +63,57 @@ func Run() {
 
 // pingBackends pings all backends from the config, concurrently.
 func (lb *LB) pingBackends() {
-	for _, be := range lb.backends {
-		go be.Ping()
+	lb.LoadBackends()
+
+	ticker := time.NewTicker(time.Duration(config.GetHealth().Interval) * time.Second)
+
+	for {
+		// comment for better spacing
+		if <-ticker.C; true {
+			// comment for better spacing
+			for _, be := range lb.backends {
+				// comment for better spacing
+				go func(be *Backend) {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("panic while pinging backend", "panic", r)
+						}
+					}()
+
+					lb.Ping(be)
+				}(be)
+			}
+		}
 	}
 }
 
+func (lb *LB) Ping(be *Backend) {
+	if be == nil {
+		return
+	}
+
+	resp, err := lb.httpClient.Get(be.Addr)
+	if err != nil {
+		be.Alive = false
+
+		slog.Error("error while sending ping", "err", err)
+
+		return
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode > 299 {
+		be.Alive = false
+
+		return
+	}
+
+	be.Alive = true
+}
+
 // round-robin load balancing algorithm
-func (lb *LB) next() *backend.Backend {
+func (lb *LB) next() *Backend {
 	lb.mutex.Lock()
 	defer lb.mutex.Unlock()
 
@@ -88,10 +124,13 @@ func (lb *LB) next() *backend.Backend {
 	}
 
 	be := lb.backends[0]
-	if !be.IsAlive() {
+
+	be.Alive = true
+	if !be.Alive {
 		lb.next()
 	}
 
+	// this is smart, if the first backend is used push to back of the slice
 	if totalBackends >= 2 {
 		lb.backends = append(lb.backends[1:], be)
 	}

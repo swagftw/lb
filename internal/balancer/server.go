@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 )
 
 type Server struct {
@@ -14,38 +15,29 @@ type Server struct {
 
 // Start starts the reverse proxy server.
 func (s *Server) Start() {
-	reverseProxy := httputil.ReverseProxy{
+	reverseProxy := &httputil.ReverseProxy{
 		Director: s.director,
-		// Transport: &http.Transport{
-		//     MaxIdleConns:    100,
-		//     IdleConnTimeout: time.Minute,
-		// },
 	}
 
-	svr := http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: &reverseProxy,
-	}
+	errChan := make(chan error, 1)
 
 	go func() {
 		slog.Info("starting server", "port", s.port)
 
-		err := svr.ListenAndServe()
+		err := http.ListenAndServe(fmt.Sprintf(":%d", s.port), reverseProxy)
 		if err != nil {
 			slog.Error(err.Error())
+
+			errChan <- err
 		}
 	}()
 
-	select {}
+	if err := <-errChan; true {
+		slog.Error("failed to start load balancer", "err", err)
+	}
 }
 
 func (s *Server) director(req *http.Request) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("panic", "err", r)
-		}
-	}()
-
 	be := s.lb.next()
 	if be == nil {
 		slog.Error("no backends available")
@@ -53,6 +45,8 @@ func (s *Server) director(req *http.Request) {
 		return
 	}
 
+	beURL, _ := url.Parse(be.Addr)
+
 	req.URL.Scheme = "http"
-	req.URL.Host = be.Addr
+	req.URL.Host = beURL.Host
 }

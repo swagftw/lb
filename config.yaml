@@ -1,0 +1,13 @@
+health:
+  interval: 2
+  timeout: 5
+
+backends:
+  - addr: http://localhost:8080/health
+    id: 1
+  - addr: http://localhost:8083/health
+    id: 2
+
+balancer:
+  port: 8888
+  debug: true

@@ -1,34 +1,37 @@
 package main
 
 import (
-    "log"
-    "log/slog"
-    "os"
+	"flag"
+	"log/slog"
+	"os"
 
-    "lb/internal/balancer"
-    "lb/pkg/config"
+	"lb/internal/balancer"
+	"lb/pkg/config"
 )
 
 func main() {
-    logLevel := new(slog.LevelVar)
-    logLevel.Set(slog.LevelDebug)
+	configPath := flag.String("configPath", "./config.yaml", "path to the config file")
+	flag.Parse()
 
-    logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-        Level:     logLevel,
-        AddSource: true,
-    }))
+	err := config.LoadConfig(*configPath)
+	if err != nil {
+		return
+	}
 
-    slog.SetDefault(logger)
+	serverConfig := config.GetBalancerConfig()
 
-    configPath := os.Getenv("CONFIG_PATH")
-    if configPath == "" {
-        configPath = "./pkg/config/config.yaml"
-    }
+	logLevel := slog.LevelInfo
 
-    err := config.LoadConfig(configPath)
-    if err != nil {
-        log.Fatal(err)
-    }
+	if serverConfig.Debug {
+		logLevel = slog.LevelDebug
+	}
 
-    balancer.Run()
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level:     logLevel,
+		AddSource: true,
+	}))
+
+	slog.SetDefault(logger)
+
+	balancer.Run()
 }
